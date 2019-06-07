@@ -1,13 +1,12 @@
 package com.tailoredapps.biometricauth
 
-import android.hardware.biometrics.BiometricPrompt
 import android.os.Build
-import android.support.annotation.RequiresApi
-import android.support.annotation.RestrictTo
-import android.support.v4.hardware.fingerprint.FingerprintManagerCompat
-import android.support.v7.app.AppCompatActivity
+import androidx.annotation.RequiresApi
+import androidx.annotation.RestrictTo
+import androidx.biometric.BiometricPrompt
+import androidx.fragment.app.FragmentActivity
+import com.tailoredapps.biometricauth.delegate.backported.BackportedBiometricAuth
 import com.tailoredapps.biometricauth.delegate.legacy.LegacyBiometricAuth
-import com.tailoredapps.biometricauth.delegate.marshmallow.MarshmallowBiometricAuth
 import com.tailoredapps.biometricauth.delegate.pie.PieBiometricAuth
 import io.reactivex.Completable
 import io.reactivex.Maybe
@@ -38,18 +37,21 @@ interface BiometricAuth {
         /**
          * Create a [BiometricAuth] instance targeting the devices' version-code (taken from [Build.VERSION.SDK_INT]).
          *
-         * @param activity the current activity (as [AppCompatActivity]) which requests the authentication.
+         * @param activity the current activity (as [FragmentActivity]) which requests the authentication.
          *
-         * @return an instance of [BiometricAuth], which targets the devices' SDK version.
+         * @return an instance of [BiometricAuth].
          */
-        fun create(activity: AppCompatActivity): BiometricAuth {
-            val versionCode = Build.VERSION.SDK_INT
+        fun create(activity: FragmentActivity): BiometricAuth {
+            val versionCode = androidVersionCode
             return when {
-                versionCode >= Build.VERSION_CODES.P -> PieBiometricAuth(activity)
-                versionCode >= Build.VERSION_CODES.M -> MarshmallowBiometricAuth(activity)
+                versionCode >= Build.VERSION_CODES.M -> BackportedBiometricAuth(activity)
                 else -> LegacyBiometricAuth()
             }
         }
+
+        @get:RestrictTo(RestrictTo.Scope.LIBRARY)
+        internal val androidVersionCode: Int
+            get() = Build.VERSION.SDK_INT
 
     }
 
@@ -167,9 +169,8 @@ interface BiometricAuth {
 
 
         /**
-         * Internal constructor to map a [PieBiometricAuth]-response object into this wrapper object
+         * Internal constructor to map a [BackportedBiometricAuth]-response object into this wrapper object
          */
-        @RequiresApi(28)
         @RestrictTo(RestrictTo.Scope.LIBRARY)
         constructor(biometricPromptCryptoObject: BiometricPrompt.CryptoObject) : this(
                 biometricPromptCryptoObject.signature,
@@ -177,16 +178,18 @@ interface BiometricAuth {
                 biometricPromptCryptoObject.mac
         )
 
+
         /**
-         * Internal constructor to map a [MarshmallowBiometricAuth]-response object into this wrapper object
+         * Internal constructor to map a [PieBiometricAuth]-response object into this wrapper object
          */
-        @RequiresApi(23)
+        @RequiresApi(28)
         @RestrictTo(RestrictTo.Scope.LIBRARY)
-        constructor(fingerprintManagerCompatCryptoObject: FingerprintManagerCompat.CryptoObject) : this(
-                fingerprintManagerCompatCryptoObject.signature,
-                fingerprintManagerCompatCryptoObject.cipher,
-                fingerprintManagerCompatCryptoObject.mac
+        constructor(biometricPromptCryptoObject: android.hardware.biometrics.BiometricPrompt.CryptoObject) : this(
+                biometricPromptCryptoObject.signature,
+                biometricPromptCryptoObject.cipher,
+                biometricPromptCryptoObject.mac
         )
+
     }
 
 }

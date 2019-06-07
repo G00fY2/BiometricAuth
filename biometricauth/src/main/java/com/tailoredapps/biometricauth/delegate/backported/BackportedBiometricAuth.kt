@@ -1,12 +1,10 @@
-package com.tailoredapps.biometricauth.delegate.pie
+package com.tailoredapps.biometricauth.delegate.backported
 
-import android.annotation.TargetApi
 import android.content.Context
-import android.content.DialogInterface
-import android.hardware.biometrics.BiometricPrompt
-import android.os.CancellationSignal
 import androidx.annotation.RestrictTo
+import androidx.biometric.BiometricPrompt
 import androidx.core.hardware.fingerprint.FingerprintManagerCompat
+import androidx.fragment.app.FragmentActivity
 import com.tailoredapps.biometricauth.BiometricAuth
 import com.tailoredapps.biometricauth.BiometricAuthenticationCancelledException
 import com.tailoredapps.biometricauth.BiometricAuthenticationException
@@ -16,9 +14,13 @@ import io.reactivex.*
 import io.reactivex.rxkotlin.Flowables
 import java.util.concurrent.Executor
 
-@TargetApi(28)
 @RestrictTo(RestrictTo.Scope.LIBRARY)
-class PieBiometricAuth(private val context: Context) : BiometricAuth {
+class BackportedBiometricAuth(
+        context: Context,
+        private val fragmentActivity: FragmentActivity
+) : BiometricAuth {
+
+    constructor(fragmentActivity: FragmentActivity) : this(fragmentActivity, fragmentActivity)
 
     private val fingerprintManagerCompat: FingerprintManagerCompat = FingerprintManagerCompat.from(context)
 
@@ -36,37 +38,22 @@ class PieBiometricAuth(private val context: Context) : BiometricAuth {
                 .create<AuthenticationEvent>(BackpressureStrategy.LATEST) { emitter ->
                     val executor = Executor { it.run() }
 
-                    val cancellationSignal = CancellationSignal()
-                    emitter.setCancellable { cancellationSignal.cancel() }
+                    val promptInfo = BiometricPrompt.PromptInfo.Builder()
+                            .setTitle(title)
+                            .setSubtitle(subtitle)
+                            .setDescription(description)
+                            .setNegativeButtonText(negativeButtonText)
+                            .build()
 
-                    val biometricPrompt = BiometricPrompt.Builder(context).apply {
-                        setTitle(title)
-                        subtitle?.let { setSubtitle(it) }
-                        description?.let { setDescription(it) }
-                        setNegativeButton(
-                                negativeButtonText,
-                                executor,
-                                DialogInterface.OnClickListener { _, _ ->
-                                    cancellationSignal.cancel()
-                                    emitter.onError(BiometricAuthenticationCancelledException())
-                                }
-                        )
-                    }.build()
+                    val biometricPrompt = BiometricPrompt(fragmentActivity, executor, getAuthenticationCallbackForFlowableEmitter(emitter))
+
+                    emitter.setCancellable { biometricPrompt.cancelAuthentication() }
 
                     val convertedCryptoObject = cryptoObject?.toCryptoObject()
                     if (convertedCryptoObject != null) {
-                        biometricPrompt.authenticate(
-                                convertedCryptoObject,
-                                cancellationSignal,
-                                executor,
-                                getAuthenticationCallbackForFlowableEmitter(emitter)
-                        )
+                        biometricPrompt.authenticate(promptInfo, convertedCryptoObject)
                     } else {
-                        biometricPrompt.authenticate(
-                                cancellationSignal,
-                                executor,
-                                getAuthenticationCallbackForFlowableEmitter(emitter)
-                        )
+                        biometricPrompt.authenticate(promptInfo)
                     }
                 }
                 .filter { event -> event is AuthenticationEvent.Success || event is AuthenticationEvent.Error }
@@ -91,8 +78,7 @@ class PieBiometricAuth(private val context: Context) : BiometricAuth {
                                 errorMessageId = event.messageId, errorString = event.message
                         ))
                         else -> Maybe.error(BiometricAuthenticationException(
-                                errorMessageId = 0,
-                                errorString = ""
+                                errorMessageId = 0, errorString = ""
                         ))
                     }
                 }
@@ -132,9 +118,9 @@ class PieBiometricAuth(private val context: Context) : BiometricAuth {
                 }
             }
 
-            override fun onAuthenticationHelp(helpCode: Int, helpString: CharSequence) {
-                emitter.onNext(AuthenticationEvent.Help(helpCode, helpString))
-            }
+//            override fun onAuthenticationHelp(helpCode: Int, helpString: CharSequence) {
+//                emitter.onNext(AuthenticationEvent.Help(helpCode, helpString))
+//            }
 
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                 emitter.onNext(AuthenticationEvent.Success(result.cryptoObject?.let { BiometricAuth.Crypto(it) }))
